@@ -45,14 +45,35 @@ def handle_messages():
     
     if request.method == 'POST':
         try:
-            xml_data = request.data
-            data_dict = xmltodict.parse(xml_data)
-
+            # Parse the XML
+            data_dict = xmltodict.parse(request.data)
+            
+            # Navigate the SOAP structure
+            # Path: Envelope -> Body -> GetMyMessagesResponse -> Messages -> Message
             soap_body = data_dict.get('soapenv:Envelope', {}).get('soapenv:Body', {})
-            notification = soap_body.get('GetMyMessagesResponse', {})
+            response = soap_body.get('GetMyMessagesResponse', {})
+            messages_container = response.get('Messages', {})
+            
+            # This is the tricky part: eBay might send one message or a list
+            msg_data = messages_container.get('Message', [])
+            if isinstance(msg_data, dict):
+                msg_data = [msg_data]
 
-            print("!!! NEW MESSAGE RECEIVED !!!")
-            print(notification)
+            print(f"--- Processing {len(msg_data)} New Message(s) ---")
+
+            for msg in msg_data:
+                # Extract the key details
+                sender = msg.get('Sender')
+                subject = msg.get('Subject')
+                # 'Text' usually contains the actual message body
+                content = msg.get('Text')
+                message_id = msg.get('MessageID')
+
+                print(f"MESSAGE ID: {message_id}")
+                print(f"FROM: {sender}")
+                print(f"SUBJECT: {subject}")
+                print(f"CONTENT: {content}")
+                print("-" * 30)
 
             return "OK", 200
         
