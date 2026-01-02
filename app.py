@@ -3,6 +3,7 @@ from flask import Flask, request, jsonify
 from dotenv import load_dotenv
 import os
 import hashlib
+import xmltodict
 
 
 app = Flask(__name__)
@@ -31,8 +32,35 @@ This endpoint handles incoming messages that are received from EBAY users.
 """
 @app.route("/messages", methods = ['POST', 'GET'])
 def handle_messages():
+    if request.method == 'GET':
+        #grabs challenge code sent through GET request
+        challenge = request.args.get('challenge_code')
+        #set endpoint url to include /handshake
+        endpoint = f"{BASE_URL}/handshake"
+
+        #call hashing functinon
+        h = create_hash(challenge, VERIFICATION_TOKEN, endpoint)
+        #respond with hashed challenge response in json format
+        return jsonify({"challengeResponse": h}), 200
+    
     if request.method == 'POST':
-        return "OK", 200
+        try:
+            xml_data = request.data
+            data_dict = xmltodict.parse(xml_data)
+
+            soap_body = data_dict.get('soapenv:Envelope', {}).get('soapenv:Body', {})
+            notification = soap_body.get('GetMyMessagesResponse', {})
+
+            print("!!! NEW MESSAGE RECEIVED !!!")
+            print(notification)
+
+            return "OK", 200
+        
+        except Exception as e:
+            print(f"Error processing message: {e}")
+            return "Error", 500
+
+
 
 """
 This endpoint is for handling account deletion requests from EBAY, 
@@ -41,7 +69,16 @@ which requires deleting user information from personal database.
 @app.route("/deletion", methods = ['POST', 'GET'])
 def handle_deletion():
     if request.method == 'GET':
-        return "OK", 200
+        #grabs challenge code sent through GET request
+        challenge = request.args.get('challenge_code')
+        #set endpoint url to include /handshake
+        endpoint = f"{BASE_URL}/handshake"
+
+        #call hashing functinon
+        h = create_hash(challenge, VERIFICATION_TOKEN, endpoint)
+        #respond with hashed challenge response in json format
+        return jsonify({"challengeResponse": h}), 200
+    
     #this is the post request handler that sends user data
     if request.method == 'POST':
         #pull json data from request
