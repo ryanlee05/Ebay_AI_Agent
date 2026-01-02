@@ -36,7 +36,7 @@ def handle_messages():
         #grabs challenge code sent through GET request
         challenge = request.args.get('challenge_code')
         #set endpoint url to include /handshake
-        endpoint = f"{BASE_URL}/handshake"
+        endpoint = f"{BASE_URL}/messages"
 
         #call hashing functinon
         h = create_hash(challenge, VERIFICATION_TOKEN, endpoint)
@@ -72,7 +72,7 @@ def handle_deletion():
         #grabs challenge code sent through GET request
         challenge = request.args.get('challenge_code')
         #set endpoint url to include /handshake
-        endpoint = f"{BASE_URL}/handshake"
+        endpoint = f"{BASE_URL}/deletion"
 
         #call hashing functinon
         h = create_hash(challenge, VERIFICATION_TOKEN, endpoint)
