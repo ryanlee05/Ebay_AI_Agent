@@ -55,36 +55,25 @@ def handle_messages():
 
             for msg in msg_data:
                 sender = msg.get('Sender', 'Unknown')
-                subject = msg.get('Subject', 'No Subject')
                 raw_html = msg.get('Text', '')
                 
-                # Use BeautifulSoup to clean the HTML
                 soup = BeautifulSoup(raw_html, 'html.parser')
 
-                # STRATEGY 1: Look for the UserInputtedText div (Modern eBay)
-                user_content = soup.find("div", {"id": "UserInputtedText"})
+                # 1. Target the <p> tag that contains the text "New message:"
+                # We use a lambda function to find a p tag where "New message:" is in the text
+                message_p_tag = soup.find('p', text=lambda t: t and "New message:" in t)
                 
-                # STRATEGY 2: Look for V4PrimaryMessage (Older/Alternative eBay format)
-                if not user_content:
-                    user_content = soup.find("div", {"id": "V4PrimaryMessage"})
-
-                if user_content:
-                    actual_message = user_content.get_text(separator=' ', strip=True)
+                if message_p_tag:
+                    full_text = message_p_tag.get_text(strip=True)
+                    # This removes the "New message: " part so you only get "Hey can I come pick this up?"
+                    actual_message = full_text.replace("New message:", "").strip()
                 else:
-                    # STRATEGY 3: Extract all text but remove the boilerplate footer
-                    # We split at "Dear" or "Reply" to try and cut off the extra eBay fluff
-                    full_text = soup.get_text(separator=' ', strip=True)
-                    actual_message = full_text.split('Reply')[0].split('Dear')[0].strip()
-                    
-                    # If splitting resulted in empty text, just take a snippet
-                    if not actual_message:
-                        actual_message = full_text[:200]
+                    # Fallback: if they change the format, just grab the first div with content
+                    actual_message = soup.get_text(separator=' ', strip=True).split('Reply')[0]
 
-                print(f"\n--- NEW EBAY MESSAGE ---")
-                print(f"SENDER : {sender}")
-                print(f"SUBJECT: {subject}")
+                print(f"\n--- NEW MESSAGE FROM: {sender} ---")
                 print(f"CONTENT: {actual_message}")
-                print(f"------------------------\n")
+                print(f"----------------------------------\n")
 
             return "OK", 200
 
