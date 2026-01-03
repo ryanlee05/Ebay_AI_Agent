@@ -1,5 +1,5 @@
 from flask import Flask, request, jsonify
-
+from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 import os
 import hashlib
@@ -45,41 +45,47 @@ def handle_messages():
     
     if request.method == 'POST':
         try:
-            # Parse the XML
+            # Parse the XML raw data
             data_dict = xmltodict.parse(request.data)
             
             # Navigate the SOAP structure
-            # Path: Envelope -> Body -> GetMyMessagesResponse -> Messages -> Message
             soap_body = data_dict.get('soapenv:Envelope', {}).get('soapenv:Body', {})
             response = soap_body.get('GetMyMessagesResponse', {})
             messages_container = response.get('Messages', {})
             
-            # This is the tricky part: eBay might send one message or a list
+            # Handle one message or a list
             msg_data = messages_container.get('Message', [])
             if isinstance(msg_data, dict):
                 msg_data = [msg_data]
 
-            print(f"--- Processing {len(msg_data)} New Message(s) ---")
-
             for msg in msg_data:
-                # Extract the key details
-                sender = msg.get('Sender')
-                subject = msg.get('Subject')
-                # 'Text' usually contains the actual message body
-                content = msg.get('Text')
-                message_id = msg.get('MessageID')
+                sender = msg.get('Sender', 'Unknown')
+                raw_html = msg.get('Text', '')
+                
+                # Use BeautifulSoup to parse the HTML within the XML
+                soup = BeautifulSoup(raw_html, 'html.parser')
 
-                print(f"MESSAGE ID: {message_id}")
-                print(f"FROM: {sender}")
-                print(f"SUBJECT: {subject}")
-                print(f"CONTENT: {content}")
+                # 1. Try to find the specific user message div
+                user_content = soup.find("div", {"id": "UserInputtedText"})
+                
+                if user_content:
+                    # Found the exact box!
+                    actual_message = user_content.get_text(separator=' ', strip=True)
+                else:
+                    # Fallback: Just strip all HTML if the ID is missing
+                    actual_message = soup.get_text(separator=' ', strip=True)
+                    # Optional: Chop off the long eBay footer for cleaner logs
+                    actual_message = actual_message[:200] + "..." 
+
+                print(f"!!! NEW MESSAGE FROM: {sender} !!!")
+                print(f"CONTENT: {actual_message}")
                 print("-" * 30)
 
             return "OK", 200
-        
+
         except Exception as e:
             print(f"Error processing message: {e}")
-            return "Error", 500
+            return "OK", 200  # Return 200 so eBay stops retrying a broken message
 
 
 
