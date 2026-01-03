@@ -30,17 +30,12 @@ def create_hash(challenge, token, url):
 """
 This endpoint handles incoming messages that are received from EBAY users.
 """
-@app.route("/messages", methods = ['POST', 'GET'])
+@app.route("/messages", methods=['POST', 'GET'])
 def handle_messages():
     if request.method == 'GET':
-        #grabs challenge code sent through GET request
         challenge = request.args.get('challenge_code')
-        #set endpoint url to include /handshake
         endpoint = f"{BASE_URL}/messages"
-
-        #call hashing functinon
         h = create_hash(challenge, VERIFICATION_TOKEN, endpoint)
-        #respond with hashed challenge response in json format
         return jsonify({"challengeResponse": h}), 200
     
     if request.method == 'POST':
@@ -49,45 +44,53 @@ def handle_messages():
             data_dict = xmltodict.parse(request.data)
             
             # Navigate the SOAP structure
-            soap_body = data_dict.get('soapenv:Envelope', {}).get('soapenv:Body', {})
+            soap_envelope = data_dict.get('soapenv:Envelope', {})
+            soap_body = soap_envelope.get('soapenv:Body', {})
             response = soap_body.get('GetMyMessagesResponse', {})
             messages_container = response.get('Messages', {})
             
-            # Handle one message or a list
             msg_data = messages_container.get('Message', [])
             if isinstance(msg_data, dict):
                 msg_data = [msg_data]
 
             for msg in msg_data:
                 sender = msg.get('Sender', 'Unknown')
+                subject = msg.get('Subject', 'No Subject')
                 raw_html = msg.get('Text', '')
                 
-                # Use BeautifulSoup to parse the HTML within the XML
+                # Use BeautifulSoup to clean the HTML
                 soup = BeautifulSoup(raw_html, 'html.parser')
 
-                # 1. Try to find the specific user message div
+                # STRATEGY 1: Look for the UserInputtedText div (Modern eBay)
                 user_content = soup.find("div", {"id": "UserInputtedText"})
                 
+                # STRATEGY 2: Look for V4PrimaryMessage (Older/Alternative eBay format)
+                if not user_content:
+                    user_content = soup.find("div", {"id": "V4PrimaryMessage"})
+
                 if user_content:
-                    # Found the exact box!
                     actual_message = user_content.get_text(separator=' ', strip=True)
                 else:
-                    # Fallback: Just strip all HTML if the ID is missing
-                    actual_message = soup.get_text(separator=' ', strip=True)
-                    # Optional: Chop off the long eBay footer for cleaner logs
-                    actual_message = actual_message[:200] + "..." 
+                    # STRATEGY 3: Extract all text but remove the boilerplate footer
+                    # We split at "Dear" or "Reply" to try and cut off the extra eBay fluff
+                    full_text = soup.get_text(separator=' ', strip=True)
+                    actual_message = full_text.split('Reply')[0].split('Dear')[0].strip()
+                    
+                    # If splitting resulted in empty text, just take a snippet
+                    if not actual_message:
+                        actual_message = full_text[:200]
 
-                print(f"!!! NEW MESSAGE FROM: {sender} !!!")
+                print(f"\n--- NEW EBAY MESSAGE ---")
+                print(f"SENDER : {sender}")
+                print(f"SUBJECT: {subject}")
                 print(f"CONTENT: {actual_message}")
-                print("-" * 30)
+                print(f"------------------------\n")
 
             return "OK", 200
 
         except Exception as e:
             print(f"Error processing message: {e}")
-            return "OK", 200  # Return 200 so eBay stops retrying a broken message
-
-
+            return "OK", 200
 
 """
 This endpoint is for handling account deletion requests from EBAY, 
