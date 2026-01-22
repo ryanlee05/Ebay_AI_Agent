@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
+import re
 import os
 import hashlib
 import xmltodict
@@ -25,6 +26,75 @@ VERIFICATION_TOKEN = os.getenv("VERIFICATION_TOKEN")
 def create_hash(challenge, token, url):
     combined = challenge + token + url
     return hashlib.sha256(combined.encode('utf-8')).hexdigest()
+
+
+# Function to extract buyer message from eBay HTML notification
+def extract_buyer_message(raw_html):
+    """
+    Extract the actual buyer message from eBay's HTML notification.
+    Tries multiple strategies to handle different HTML formats.
+    """
+    soup = BeautifulSoup(raw_html, 'html.parser')
+    
+    # Strategy 1: Look for "New message:" prefix
+    message_p_tag = soup.find('p', string=lambda t: t and "New message:" in t)
+    if message_p_tag:
+        full_text = message_p_tag.get_text(strip=True)
+        actual_message = full_text.replace("New message:", "").strip()
+        if actual_message:
+            return actual_message
+    
+    # Strategy 2: Look for specific patterns with regex
+    # Sometimes the message is in a div or span after "New message:"
+    text_content = soup.get_text(separator='\n')
+    match = re.search(r'New message:\s*(.+?)(?:\n|Reply|$)', text_content, re.DOTALL)
+    if match:
+        actual_message = match.group(1).strip()
+        if actual_message:
+            return actual_message
+    
+    # Strategy 3: Find all paragraphs and filter out system text
+    all_paragraphs = soup.find_all('p')
+    for p in all_paragraphs:
+        text = p.get_text(strip=True)
+        # Skip common eBay system text
+        if text and not any(skip in text.lower() for skip in [
+            'reply', 'view message', 'go to my ebay', 'ebay inc', 
+            'copyright', 'all rights reserved', 'questions about'
+        ]):
+            # If it contains "New message:", extract what's after it
+            if "New message:" in text:
+                return text.split("New message:")[-1].strip()
+            # Otherwise, if it's substantial, it might be the message
+            elif len(text) > 10:
+                return text
+    
+    # Strategy 4: Look for the main content div/table
+    # eBay often uses tables for layout
+    main_content = soup.find('td', {'class': lambda x: x and 'content' in x.lower()})
+    if not main_content:
+        main_content = soup.find('div', {'class': lambda x: x and 'message' in x.lower()})
+    
+    if main_content:
+        text = main_content.get_text(strip=True)
+        # Remove the "New message:" prefix if present
+        text = re.sub(r'^New message:\s*', '', text)
+        # Remove common footers
+        text = re.split(r'Reply|View message|Go to My eBay', text)[0].strip()
+        if text:
+            return text
+    
+    # Fallback: Return cleaned full text
+    full_text = soup.get_text(separator=' ', strip=True)
+    # Remove everything after common action words
+    full_text = re.split(r'Reply|View message|Go to My eBay', full_text)[0]
+    # Remove "New message:" if present
+    full_text = re.sub(r'^New message:\s*', '', full_text)
+    return full_text.strip()
+
+
+# Example usage in your Flask endpoint:
+# actual_message = extract_buyer_message(raw_html)
 
 
 """
@@ -57,20 +127,9 @@ def handle_messages():
                 sender = msg.get('Sender', 'Unknown')
                 raw_html = msg.get('Text', '')
                 
-                soup = BeautifulSoup(raw_html, 'html.parser')
-
-                # 1. Target the <p> tag that contains the text "New message:"
-                # We use a lambda function to find a p tag where "New message:" is in the text
-                message_p_tag = soup.find('p', text=lambda t: t and "New message:" in t)
+                # Use the improved extraction function
+                actual_message = extract_buyer_message(raw_html)
                 
-                if message_p_tag:
-                    full_text = message_p_tag.get_text(strip=True)
-                    # This removes the "New message: " part so you only get "Hey can I come pick this up?"
-                    actual_message = full_text.replace("New message:", "").strip()
-                else:
-                    # Fallback: if they change the format, just grab the first div with content
-                    actual_message = soup.get_text(separator=' ', strip=True).split('Reply')[0]
-
                 print(f"\n--- NEW MESSAGE FROM: {sender} ---")
                 print(f"CONTENT: {actual_message}")
                 print(f"----------------------------------\n")
@@ -108,10 +167,6 @@ def handle_deletion():
                 #pull user_id and username from json data, used to remove user data from database
                 user_id = data['notification']['data']['userId']
                 username = data['notification']['data']['username']
-                
-                print(f"!!! DELETION REQUEST RECEIVED !!!")
-                print(f"User ID: {user_id}")
-                print(f"Username: {username}")
 
             #if no data, print error message
             except KeyError:
