@@ -25,15 +25,12 @@ class Client(db.Model):
     id = db.Column(db.BigInteger, primary_key=True)
     title = db.Column(db.String(100), nullable=False)
 
-@app.route('/get-clients')
-def get_clients():
-    all_clients = Client.query.all()
-    output = []
+def get_item(item_id):
+    item = Client.query.filter_by(id=item_id).first()
+    if item:
+        return {'id': item.id, 'title': item.title}
     
-    for client in all_clients:
-        output.append({'id': client.id, 'title': client.title})
-    
-    return output
+    return None     
 
 
 
@@ -161,6 +158,12 @@ def handle_messages():
                 print(f"\n--- NEW MESSAGE FROM: {sender} ---")
                 print(f"CONTENT: {actual_message}")
                 print(f"----------------------------------\n")
+
+                item = get_item(itemID)
+                if item:
+                    print(f"Item found in database: {item}")
+                else:
+                    print("Item not found in database.")
 
             return "OK", 200
 
