@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
+from flask_sqlalchemy import SQLAlchemy 
 import re
 import os
 import hashlib
@@ -11,6 +12,30 @@ app = Flask(__name__)
 
 #load environment varialbes from .env file
 load_dotenv()
+
+app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv("SQL_URL")
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+#set up the database connection
+db = SQLAlchemy(app)
+
+#database model for clients
+class Client(db.Model):
+    __tablename__ = 'inventory'
+    id = db.Column(db.BigInteger, primary_key=True)
+    title = db.Column(db.String(100), nullable=False)
+
+@app.route('/get-clients')
+def get_clients():
+    all_clients = Client.query.all()
+    output = []
+    
+    for client in all_clients:
+        output.append({'id': client.id, 'title': client.title})
+    
+    return output
+
+
 
 #ngronk url for testing purposes (HTTPS to HTTP tunneling)
 BASE_URL = os.getenv("BASE_URL")
@@ -126,10 +151,13 @@ def handle_messages():
             for msg in msg_data:
                 sender = msg.get('Sender', 'Unknown')
                 raw_html = msg.get('Text', '')
+
+                itemID = msg.get('ItemID')
                 
                 # Use the improved extraction function
                 actual_message = extract_buyer_message(raw_html)
                 
+                print(f"Item ID: {itemID}")
                 print(f"\n--- NEW MESSAGE FROM: {sender} ---")
                 print(f"CONTENT: {actual_message}")
                 print(f"----------------------------------\n")
