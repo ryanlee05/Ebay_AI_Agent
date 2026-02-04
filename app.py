@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from flask_sqlalchemy import SQLAlchemy 
+import threading
 import re
 import os
 import hashlib
@@ -48,6 +49,34 @@ VERIFICATION_TOKEN = os.getenv("VERIFICATION_TOKEN")
 def create_hash(challenge, token, url):
     combined = challenge + token + url
     return hashlib.sha256(combined.encode('utf-8')).hexdigest()
+
+# Function to process incoming eBay messages using threads
+def process_ebay_message(raw_xml_data):
+    data_dict = xmltodict.parse(raw_xml_data)
+    # Navigate the SOAP structure
+    soap_envelope = data_dict.get('soapenv:Envelope', {})
+    soap_body = soap_envelope.get('soapenv:Body', {})
+    response = soap_body.get('GetMyMessagesResponse', {})
+    messages_container = response.get('Messages', {})
+    
+    msg_data = messages_container.get('Message', [])
+    if isinstance(msg_data, dict):
+        msg_data = [msg_data]
+
+    for msg in msg_data:
+        sender = msg.get('Sender', 'Unknown')
+        raw_html = msg.get('Text', '')
+        itemID = msg.get('ItemID')
+        
+        # Heavy BeautifulSoup processing
+        actual_message = extract_buyer_message(raw_html)
+        
+        print(f"Item ID: {itemID}")
+        print(f"\n--- NEW MESSAGE FROM: {sender} ---")
+        print(f"CONTENT: {actual_message}")
+        print(f"----------------------------------\n")
+        # Database query
+
 
 
 # Function to extract buyer message from eBay HTML notification
@@ -131,45 +160,12 @@ def handle_messages():
         return jsonify({"challengeResponse": h}), 200
     
     if request.method == 'POST':
-        try:
-            # Parse the XML raw data
-            data_dict = xmltodict.parse(request.data)
-            
-            # Navigate the SOAP structure
-            soap_envelope = data_dict.get('soapenv:Envelope', {})
-            soap_body = soap_envelope.get('soapenv:Body', {})
-            response = soap_body.get('GetMyMessagesResponse', {})
-            messages_container = response.get('Messages', {})
-            
-            msg_data = messages_container.get('Message', [])
-            if isinstance(msg_data, dict):
-                msg_data = [msg_data]
+        raw_data = request.data
 
-            for msg in msg_data:
-                sender = msg.get('Sender', 'Unknown')
-                raw_html = msg.get('Text', '')
+        task = threading.Thread(target=process_ebay_message, args = (raw_data,))
+        task.start()
 
-                itemID = msg.get('ItemID')
-                
-                # Use the improved extraction function
-                actual_message = extract_buyer_message(raw_html)
-                
-                print(f"Item ID: {itemID}")
-                print(f"\n--- NEW MESSAGE FROM: {sender} ---")
-                print(f"CONTENT: {actual_message}")
-                print(f"----------------------------------\n")
-
-                item = get_item(itemID)
-                if item:
-                    print(f"Item found in database: {item}")
-                else:
-                    print("Item not found in database.")
-
-            return "OK", 200
-
-        except Exception as e:
-            print(f"Error processing message: {e}")
-            return "OK", 200
+        return "OK", 200
 
 """
 This endpoint is for handling account deletion requests from EBAY, 
